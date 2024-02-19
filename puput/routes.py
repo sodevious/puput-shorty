@@ -10,10 +10,11 @@ from wagtail.contrib.routable_page.models import RoutablePageMixin, route
 from wagtail.models import Page
 from wagtail.search.models import Query
 
-from .utils import get_object_or_None
+from .utils import get_object_or_None, import_model
 
 USERNAME_REGEX = getattr(settings, "PUPUT_USERNAME_REGEX", "\\w+")
 USERNAME_FIELD = getattr(settings, "PUPUT_USERNAME_FIELD", "username")
+AUTHOR_MODEL = import_model(getattr(settings, "PUPUT_AUTHOR_MODEL", get_user_model()))
 
 
 class BlogRoutes(RoutablePageMixin):
@@ -53,14 +54,16 @@ class BlogRoutes(RoutablePageMixin):
         self.entries = self.get_entries().filter(entry_categories__category__slug=category)
         return Page.serve(self, request, *args, **kwargs)
 
-    @route(r"^author/(?P<author>%s)/$" % USERNAME_REGEX)
-    def entries_by_author(self, request, author, *args, **kwargs):
+    @route(r"^author/(?P<author_first_name>[-\w]+)-(?P<author_last_name>[-\w]+)/$")
+    def entries_by_author(self, request, author_first_name, author_last_name, *args, **kwargs):
         self.search_type = _("author")
-        object_or_slug = get_object_or_None(get_user_model(), **{USERNAME_FIELD: author}) or author
-        self.search_term = str(object_or_slug)
-        self.entries = self.get_entries().filter(**{"owner__%s" % USERNAME_FIELD: author})
-        return Page.serve(self, request, *args, **kwargs)
+        # Retrieve user object based on the slug
+        author = get_object_or_None(AUTHOR_MODEL, user__first_name__iexact=author_first_name, user__last_name__iexact=author_last_name)
+        self.search_term = author.user.get_full_name()  # Assuming user model has first_name and last_name fields
+        self.entries = self.get_entries().filter(blog_author_relationship__person=author)
 
+        return self.serve(request, *args, **kwargs)
+    
     @route(r"^search/$")
     def entries_search(self, request, *args, **kwargs):
         search_query = request.GET.get("q", None)
